@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyInitData, isAdmin } from '@/lib/telegram';
 import { pool } from '@/lib/db';
+export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   const { initData, adminSecret, format = 'json' } = await req.json();
