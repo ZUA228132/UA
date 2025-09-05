@@ -14,14 +14,15 @@ declare global {
 type Step = 'intro' | 'scanning' | 'result'
 type TgInfo = { name: string; id: number | null; startParam: string }
 
+// Тільки режим, без faceId: використовуємо Telegram user_id як ключ
 function parseMode(startParam: string) {
   const parts = String(startParam || '').split('_')
   const mode = parts[1] === 'verification' ? 'verification' : 'identification'
-  const faceId = parts[2] ? Number(parts[2]) : undefined
-  return { mode, faceId }
+  return { mode }
 }
 
 export default function Page() {
+  // Дані Telegram читаємо лише на клієнті
   const [tg, setTg] = useState<TgInfo>({ name: 'Користувач', id: null, startParam: '' })
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -33,26 +34,33 @@ export default function Page() {
       startParam: unsafe?.start_param || '',
     })
   }, [])
-  const { mode, faceId } = parseMode(tg.startParam)
+  const { mode } = parseMode(tg.startParam)
 
   const [step, setStep] = useState<Step>('intro')
   const [consent, setConsent] = useState(false)
   const [status, setStatus] = useState('')
   const [faces, setFaces] = useState(0)
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [result, setResult] = useState<{ ok?: boolean; passed?: boolean; dist?: number; msg?: string } | null>(null)
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const snapRef = useRef<HTMLCanvasElement>(null)
   const ringRef = useRef<HTMLDivElement>(null)
 
+  // Прогрес «хороших» кадрів
   const minGoodFrames = 48
   const [goodFrames, setGoodFrames] = useState(0)
 
   const humanCfg: any = {
     modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human/models',
     warmup: 'face',
-    face: { enabled: true, detector: { rotation: true, rotate: true, maxDetected: 1 }, mesh: { enabled: true }, description: { enabled: true } }
+    face: {
+      enabled: true,
+      detector: { rotation: true, rotate: true, maxDetected: 1 },
+      mesh: { enabled: true },
+      description: { enabled: true },
+      iris: { enabled: false }, emotion: { enabled: false }, attention: { enabled: false },
+    },
   }
 
   function aHashFromCanvas(canvas: HTMLCanvasElement): string {
@@ -91,7 +99,8 @@ export default function Page() {
   async function onStartVerification() {
     if (busy) return
     if (!consent) { setStatus('Поставте позначку згоди'); return }
-    if (mode !== 'verification' || !faceId) { setStatus('Відсутній параметр faceId у диплінку'); return }
+    if (mode !== 'verification') { setStatus('Невірний режим'); return }
+    if (!tg.id) { setStatus('Telegram ID недоступний'); return }
 
     setBusy(true)
     try {
@@ -99,7 +108,10 @@ export default function Page() {
       const human = await ensureHuman()
 
       setStatus('Запит доступу до камери…')
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 720 }, height: { ideal: 720 } },
+        audio: false,
+      })
       const v = videoRef.current!
       v.srcObject = stream; await v.play()
 
@@ -109,7 +121,7 @@ export default function Page() {
 
       setGoodFrames(0)
       setStep('scanning')
-      setStatus('Тримайте обличчя в колі')
+      setStatus('Повільно повертайте голову та тримайте обличчя в колі')
 
       let best: any = null
 
@@ -118,11 +130,13 @@ export default function Page() {
         const res = await human.detect(v, humanCfg)
         setFaces(res?.face?.length || 0)
 
+        // Оцінка «якісного» кадру
         let ok = false
         if (res.face?.length === 1 && res.face[0].descriptor?.length) {
           const f = res.face[0]
           const area = f.box[2] * f.box[3]
-          const centered = Math.abs(f.box[0] + f.box[2] / 2 - w / 2) < w * 0.1
+          const center = Math.hypot(f.box[0] + f.box[2] / 2 - w / 2, f.box[1] + f.box[3] / 2 - h / 2)
+          const centered = center < Math.min(w, h) * 0.1
           ok = centered && area > (w * h) / 14
           if (ok && (!best || area > best.area)) best = { res: f, area }
         }
@@ -139,19 +153,30 @@ export default function Page() {
           const dataUrl = snap.toDataURL('image/jpeg', 0.92)
           const ahash = aHashFromCanvas(snap)
           const descriptor = Array.from(best.res.descriptor as number[])
+
           ;(v.srcObject as MediaStream).getTracks().forEach((t) => t.stop())
 
           setStatus('Перевірка…')
           const r = await fetch('/api/verify-mode', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ face_id: faceId, dataUrl, ahash, descriptor, tg_user_id: tg.id, display_name: tg.name })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              face_id: tg.id,              // КЛЮЧ: Telegram user_id
+              dataUrl,
+              ahash,
+              descriptor,
+              tg_user_id: tg.id,
+              display_name: tg.name,
+            }),
           })
           const json = await r.json()
-          setResult(r.ok ? { ok: true, passed: json.passed, dist: json.dist } : { ok: false, msg: json.error })
+          if (!r.ok) setResult({ ok: false, msg: json.error || r.statusText })
+          else setResult({ ok: true, passed: json.passed, dist: json.dist })
           setStep('result')
           setBusy(false)
           return
         }
+
         setTimeout(loop, 80)
       }
       loop()
@@ -161,38 +186,105 @@ export default function Page() {
     }
   }
 
-  const wrap: React.CSSProperties = { minHeight: '100dvh', display: 'grid', placeItems: 'center', background: '#000', color: '#fff', padding: 16 }
+  // ——— UI ———
+  const wrap: React.CSSProperties = {
+    minHeight: '100dvh',
+    padding: 'max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))',
+    display: 'grid',
+    placeItems: 'center',
+    background: '#000',
+    color: '#fff',
+  }
+  const card: React.CSSProperties = {
+    width: 'min(96vw, 520px)',
+    background: '#111',
+    borderRadius: 20,
+    boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+    padding: 18,
+    border: '1px solid rgba(255,255,255,0.06)',
+  }
+  const btn: React.CSSProperties = {
+    width: '100%',
+    marginTop: 14,
+    padding: '16px',
+    borderRadius: 14,
+    border: 'none',
+    background: '#0a84ff',
+    color: '#fff',
+    fontWeight: 700,
+    fontSize: 'clamp(15px, 3.6vw, 16px)',
+    cursor: 'pointer',
+  }
+  const small: React.CSSProperties = { fontSize: 'clamp(11px, 2.8vw, 12px)', opacity: 0.7, marginTop: 10 }
 
   return (
     <div style={wrap}>
       {step === 'intro' && (
-        <section className="card">
-          <h1>Верифікація</h1>
-          <p>Вітаємо, <b>{tg.name}</b></p>
-          <label><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />Даю згоду</label>
-          <button onClick={onStartVerification} disabled={busy || !consent}>Пройти верифікацію</button>
-          <div>{status}</div>
+        <section style={card}>
+          <h1 style={{ fontSize: 'clamp(20px, 5.2vw, 26px)', fontWeight: 700, margin: 0 }}>Верифікація</h1>
+          <div style={{ marginTop: 8, opacity: 0.9 }}>Вітаємо, <b>{tg.name}</b></div>
+
+          <div style={{ marginTop: 12, background: '#0b0b0b', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14, lineHeight: 1.5, fontSize: 'clamp(13px, 3.6vw, 14px)' }}>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Що відбудеться:</div>
+            <ul style={{ margin: 0, paddingLeft: 18 }}>
+              <li>Запросимо доступ до камери</li>
+              <li>Покажемо коло Face ID та автоматично зробимо знімок</li>
+              <li>Порівняємо з еталоном і надішлемо результат</li>
+            </ul>
+          </div>
+
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10 }}>
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 2 }} />
+            <span>Даю згоду на обробку зображення обличчя для верифікації</span>
+          </label>
+
+          <button onClick={onStartVerification} disabled={busy || !consent} style={{ ...btn, opacity: busy || !consent ? 0.6 : 1 }}>
+            Пройти верифікацію
+          </button>
+
+          {status && <div style={small}>{status}</div>}
         </section>
       )}
+
       {step === 'scanning' && (
-        <section className="card">
-          <h2>Тримайте обличчя в колі</h2>
-          <div>Облич у кадрі: {faces}</div>
-          <div className="faceid-box">
+        <section style={{ ...card, width: 'min(98vw, 720px)' }}>
+          <h2 style={{ fontSize: 'clamp(16px, 4.6vw, 20px)', fontWeight: 600, margin: 0 }}>Тримайте обличчя в колі</h2>
+          <div style={{ fontSize: 'clamp(11px, 2.8vw, 12px)', opacity: 0.7, marginTop: 6 }}>Облич у кадрі: {faces}</div>
+
+          <div className="faceid-box" style={{ marginTop: 10 }}>
             <video ref={videoRef} className="faceid-video" autoPlay playsInline muted />
             <div className="faceid-mask"></div>
             <div ref={ringRef} className="faceid-ring" />
             <div className="faceid-edge" />
             <div className="faceid-cross" />
           </div>
+
+          <div style={small}>{status}</div>
           <canvas ref={snapRef} style={{ display: 'none' }} />
-          <div>{status}</div>
         </section>
       )}
+
       {step === 'result' && (
-        <section className="card">
-          <h2>Результат</h2>
-          {result?.ok ? (result.passed ? '✅ Пройдено' : '❌ Не пройдено') : 'Помилка'}
+        <section style={card}>
+          <h2 style={{ fontSize: 'clamp(18px, 5vw, 22px)', fontWeight: 700, margin: 0 }}>Результат</h2>
+          {result?.ok ? (
+            <div style={{ marginTop: 10, fontSize: 'clamp(15px, 4vw, 18px)' }}>
+              {result.passed ? '✅ Верифікацію пройдено' : '❌ Верифікацію не пройдено'}
+              {'dist' in (result || {}) && (
+                <div style={{ fontSize: 'clamp(11px, 2.8vw, 12px)', opacity: 0.7, marginTop: 6 }}>
+                  dist: {result?.dist?.toFixed?.(3)}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ color: '#ff4d4f', marginTop: 10 }}>{'Помилка: ' + (result?.msg || 'Невідома помилка')}</div>
+          )}
+          <button
+            onClick={() => { setStep('intro'); setResult(null); setStatus(''); setConsent(false) }}
+            style={{ ...btn, background: '#34c759' }}
+          >
+            Готово
+          </button>
         </section>
       )}
     </div>
