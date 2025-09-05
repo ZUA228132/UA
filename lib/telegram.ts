@@ -1,4 +1,3 @@
-
 import crypto from 'crypto';
 
 export function verifyInitData(initData: string | null, botToken: string): { ok: boolean, userId?: number, username?: string, startParam?: string } {
@@ -31,6 +30,6 @@ export function isAdmin(userId?: number, adminSecret?: string, providedSecret?: 
 }
 
 export function isAllowedUser(_userId?: number): boolean {
-  // allow everyone with valid signature (you control bot link)
+  // allow everyone with valid signature, per your requirements
   return true;
 }

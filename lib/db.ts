@@ -1,4 +1,3 @@
-
 import { Pool } from 'pg';
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
 
@@ -29,7 +28,7 @@ export async function ensureSchema() {
     CREATE TABLE IF NOT EXISTS reviews (
       id BIGSERIAL PRIMARY KEY,
       face_id BIGINT REFERENCES faces(id) ON DELETE CASCADE,
-      status TEXT DEFAULT 'pending', -- pending/approved/rejected
+      status TEXT DEFAULT 'pending',
       note TEXT,
       created_at TIMESTAMPTZ DEFAULT now()
     );

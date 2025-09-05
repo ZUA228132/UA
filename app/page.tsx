@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-// use browser ESM build of Human to avoid tfjs-node
+// Force browser ESM build of Human
 const loadHuman = async () => (await import('@vladmandic/human/dist/human.esm.js')).default
 
 declare global { interface Window { Telegram: { WebApp: any } } }
