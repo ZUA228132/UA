@@ -12,19 +12,24 @@ export default function Page(){
   const [status, setStatus] = useState('Loading...')
 
   useEffect(()=>{
-    (async()=>{
-      try {
-        const human = (window as any).human
-        if (!human) throw new Error('Human UMD not loaded')
-        await human.load()
-        await human.warmup()
-        const oc = new OffscreenCanvas(64, 64) // sanity-check frame
-        const res = await human.detect(oc)
-        setStatus(`Human ready. Faces detected: ${res.face?.length ?? 0}`)
-      } catch (e:any) {
-        setStatus('Human load error: ' + e.message)
+    // ждём загрузку human.js
+    function initHuman() {
+      if (window.human) {
+        (async()=>{
+          try {
+            await window.human.load()
+            await window.human.warmup()
+            const res = await window.human.detect(new OffscreenCanvas(64,64))
+            setStatus(`Human ready. Faces detected: ${res.face?.length ?? 0}`)
+          } catch (e:any) {
+            setStatus('Human load error: ' + e.message)
+          }
+        })()
+      } else {
+        setTimeout(initHuman, 200) // повторяем, пока не появится
       }
-    })()
+    }
+    initHuman()
   }, [])
 
   return (
