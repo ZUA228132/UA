@@ -20,14 +20,6 @@ export default function Page() {
   const [userName, setUserName] = useState('Гость')
   const [faces, setFaces] = useState(0)
 
-  const humanConfig = {
-    modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human/models',
-    cacheSensitivity: 0,
-    warmup: 'face',
-    face: { enabled: true, detector: { rotation: true, maxDetected: 1 }, mesh: { enabled: true } }
-  } as any
-
-  // Получаем имя из Telegram только на клиенте
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const u = window.Telegram?.WebApp?.initDataUnsafe?.user
@@ -35,14 +27,14 @@ export default function Page() {
     }
   }, [])
 
-  async function startVerification() {
+  async function handleStart() {
     if (!agree) {
-      alert('Необходимо согласиться на обработку данных')
+      alert('Нужно согласие на обработку данных')
       return
     }
     setStep('camera')
 
-    // ждём загрузку Human
+    // Загружаем Human
     let human: any = null
     const start = Date.now()
     while (!(window.human || window.Human)) {
@@ -51,24 +43,23 @@ export default function Page() {
     }
     if (window.human && typeof window.human.load === 'function') {
       human = window.human
-      Object.assign(human.config ?? (human.config = {}), humanConfig)
     } else if (typeof window.Human === 'function') {
-      human = new (window as any).Human(humanConfig)
+      human = new (window as any).Human()
     }
     await human.load()
     await human.warmup()
 
-    // камера
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    // Камера (сразу по клику!)
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
     if (videoRef.current) {
       videoRef.current.srcObject = stream
       await videoRef.current.play()
     }
 
-    // цикл детекции
+    // Цикл
     const loop = async () => {
       if (videoRef.current) {
-        const res = await human.detect(videoRef.current, humanConfig)
+        const res = await human.detect(videoRef.current)
         setFaces(res.face.length)
         drawOverlay(res)
       }
@@ -83,10 +74,13 @@ export default function Page() {
     o.width = videoRef.current?.videoWidth || 640
     o.height = videoRef.current?.videoHeight || 480
 
-    // затемнение вокруг круга (FaceID-style)
     ctx.clearRect(0, 0, o.width, o.height)
+
+    // затемнение
     ctx.fillStyle = 'rgba(0,0,0,0.6)'
     ctx.fillRect(0, 0, o.width, o.height)
+
+    // вырезанный круг (FaceID-стайл)
     const cx = o.width / 2, cy = o.height / 2
     const r = Math.min(o.width, o.height) * 0.35
     ctx.globalCompositeOperation = 'destination-out'
@@ -104,51 +98,21 @@ export default function Page() {
   }
 
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
-        background: step === 'welcome' ? '#f9fafb' : '#000',
-        color: step === 'welcome' ? '#111' : '#fff',
-        transition: 'all 0.4s ease'
-      }}
-    >
+    <main className="min-h-screen flex items-center justify-center bg-gray-100 font-sans">
       {step === 'welcome' && (
-        <div style={{
-          width: '100%',
-          maxWidth: 400,
-          textAlign: 'center',
-          padding: 24,
-          borderRadius: 16,
-          background: '#fff',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.1)'
-        }}>
-          <h1 style={{ fontSize: '1.8rem', marginBottom: 12 }}>Привет, {userName} 👋</h1>
-          <p style={{ fontSize: '1rem', color: '#4b5563', marginBottom: 20 }}>
-            Для продолжения нужно пройти FaceID-верификацию
-          </p>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer' }}>
+        <div className="w-full max-w-sm p-6 rounded-2xl bg-white shadow-lg text-center">
+          <h1 className="text-2xl font-semibold mb-2">Привет, {userName} 👋</h1>
+          <p className="text-gray-500 mb-6">Для продолжения пройди FaceID-верификацию</p>
+          <label className="flex items-center gap-2 mb-6 cursor-pointer text-sm text-gray-700">
             <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />
-            <span>Согласен на обработку персональных данных</span>
+            <span>Согласен на обработку данных</span>
           </label>
           <button
-            onClick={startVerification}
-            style={{
-              width: '100%',
-              padding: '14px 20px',
-              borderRadius: 12,
-              border: 'none',
-              background: agree ? '#10b981' : '#9ca3af',
-              color: '#fff',
-              fontSize: '1.1rem',
-              fontWeight: 600,
-              cursor: agree ? 'pointer' : 'not-allowed',
-              transition: 'all 0.2s ease'
-            }}
+            onClick={handleStart}
+            disabled={!agree}
+            className={`w-full py-3 rounded-xl text-white font-medium transition ${
+              agree ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-gray-400 cursor-not-allowed'
+            }`}
           >
             🚀 Пройти верификацию
           </button>
@@ -156,11 +120,11 @@ export default function Page() {
       )}
 
       {step === 'camera' && (
-        <div style={{ position: 'relative', width: '100%', maxWidth: 420 }}>
-          <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 20 }} />
-          <canvas ref={overlayRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
-          <p style={{ textAlign: 'center', marginTop: 12, fontSize: '1rem', color: '#9ca3af' }}>
-            {faces > 0 ? '✅ Лицо распознано' : 'Поместите лицо в рамку'}
+        <div className="relative w-full max-w-md">
+          <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-2xl" />
+          <canvas ref={overlayRef} className="absolute inset-0 w-full h-full" />
+          <p className="text-center mt-4 text-gray-400">
+            {faces > 0 ? '✅ Лицо распознано' : 'Поместите лицо в круг'}
           </p>
         </div>
       )}
