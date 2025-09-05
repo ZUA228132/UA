@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
+const fs = require('fs');
 
 const nextConfig = {
   reactStrictMode: true,
@@ -14,9 +15,14 @@ const nextConfig = {
     },
   ],
   webpack: (config, { isServer }) => {
-    // Force browser ESM build of Human, bypassing package exports
-    const humanEsm = require.resolve('@vladmandic/human/dist/human.esm.js');
-    config.resolve.alias['@vladmandic/human'] = humanEsm;
+    // Resolve absolute path to package.json, then join to dist/human.esm.js
+    const humanPkg = require.resolve('@vladmandic/human/package.json');
+    const humanEsm = path.join(humanPkg, '..', 'dist', 'human.esm.js');
+    if (!fs.existsSync(humanEsm)) {
+      throw new Error('Cannot find Human ESM at: ' + humanEsm);
+    }
+    // Exact-match alias to the package root
+    config.resolve.alias['@vladmandic/human$'] = humanEsm;
 
     if (!isServer) {
       config.resolve.alias['@tensorflow/tfjs-node'] = false;
