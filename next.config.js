@@ -1,4 +1,6 @@
 /** @type {import('next').NextConfig} */
+const path = require('path');
+
 const nextConfig = {
   reactStrictMode: true,
   experimental: { serverActions: { allowedOrigins: ['*'] } },
@@ -12,8 +14,10 @@ const nextConfig = {
     },
   ],
   webpack: (config, { isServer }) => {
-    // Always force the browser ESM build of Human, and kill node-only deps in client
-    config.resolve.alias['@vladmandic/human'] = '@vladmandic/human/dist/human.esm.js';
+    // Force browser ESM build of Human, bypassing package exports
+    const humanEsm = require.resolve('@vladmandic/human/dist/human.esm.js');
+    config.resolve.alias['@vladmandic/human'] = humanEsm;
+
     if (!isServer) {
       config.resolve.alias['@tensorflow/tfjs-node'] = false;
       config.resolve.alias['@vladmandic/human/dist/human.node.js'] = false;
