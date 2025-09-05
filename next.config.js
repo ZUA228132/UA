@@ -8,17 +8,17 @@ const nextConfig = {
       headers: [
         { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
         { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
       ],
     },
   ],
   webpack: (config, { isServer }) => {
     if (!isServer) {
-      // Just in case some lib tries to require node-only modules in client
       config.resolve.alias['@tensorflow/tfjs-node'] = false;
       config.resolve.alias['fs'] = false;
     }
     return config;
   },
-}
+};
 
-module.exports = nextConfig
+module.exports = nextConfig;
