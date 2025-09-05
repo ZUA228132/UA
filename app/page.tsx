@@ -3,33 +3,41 @@ import { useEffect, useRef, useState } from 'react'
 
 declare global {
   interface Window {
-    human?: any
+    Human?: any      // UMD constructor
+    human?: any      // possible singleton
   }
 }
 
-async function loadScriptOnce(src: string, attr: Record<string,string> = {}): Promise<void> {
+async function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    // if already present with same src, resolve
-    const existing = Array.from(document.scripts).find(s => s.src === src)
-    if (existing) { existing.addEventListener('load', () => resolve()); if ((existing as any).loaded) return resolve(); }
+    // don't double-inject
+    const same = Array.from(document.scripts).find(s => s.src === src)
+    if (same) { if ((same as any).loaded) return resolve(); same.addEventListener('load', () => resolve()); return }
     const s = document.createElement('script')
     s.src = src
-    Object.entries(attr).forEach(([k,v]) => s.setAttribute(k, v))
     s.async = true
     s.onload = () => { (s as any).loaded = true; resolve() }
-    s.onerror = (e) => reject(new Error('failed to load ' + src))
+    s.onerror = () => reject(new Error('failed to load ' + src))
     document.head.appendChild(s)
   })
 }
 
-async function ensureHuman(): Promise<void> {
-  // try our proxy first
-  try { await loadScriptOnce('/api/human'); if (window.human) return } catch {}
-  // then try jsDelivr
-  try { await loadScriptOnce('https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js'); if (window.human) return } catch {}
-  // then fallback to unpkg
-  try { await loadScriptOnce('https://unpkg.com/@vladmandic/human/dist/human.js'); if (window.human) return } catch {}
-  throw new Error('Human script not found')
+async function ensureHumanAvailable(): Promise<'constructor'|'singleton'> {
+  // if already present, short-circuit
+  if (window.Human) return 'constructor'
+  if (window.human) return 'singleton'
+
+  // try our domain first
+  await loadScript('/api/human').catch(()=>{})
+  if (window.Human) return 'constructor'
+  if (window.human) return 'singleton'
+
+  // then try jsDelivr (single fallback)
+  await loadScript('https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js').catch(()=>{})
+  if (window.Human) return 'constructor'
+  if (window.human) return 'singleton'
+
+  throw new Error('Human global not found after loading')
 }
 
 export default function Page(){
@@ -40,25 +48,38 @@ export default function Page(){
     let alive = true
     ;(async()=>{
       try {
-        // load script with fallbacks + 10s overall timeout
-        const timer = setTimeout(()=>{ if (alive) setStatus('Human load error: timeout (script not found)') }, 10000)
-        await ensureHuman()
-        clearTimeout(timer)
+        const mode = await Promise.race([
+          ensureHumanAvailable(),
+          new Promise<'constructor'|'singleton'>((_, reject) => setTimeout(() => reject(new Error('timeout waiting for human script')), 10000)),
+        ])
+
         if (!alive) return
-        const human = window.human
-        if (!human) throw new Error('Human UMD not loaded after script')
+
+        let human: any
+        if (mode === 'constructor') {
+          const HumanCtor = window.Human!
+          human = new HumanCtor({
+            modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human/models',
+            face: { enabled: true, detector: { rotation: true, rotate: true, maxDetected: 1 }, mesh: { enabled: true }, description: { enabled: true } },
+          })
+        } else {
+          human = window.human!
+        }
+
         await human.load()
         await human.warmup()
+
         const c = canvasRef.current!
         const ctx = c.getContext('2d')!
         ctx.fillStyle = '#000'; ctx.fillRect(0,0,c.width,c.height)
         const res = await human.detect(c)
-        if (alive) setStatus(`Human ready v${human.version}. Faces: ${res.face?.length ?? 0}`)
+
+        if (alive) setStatus(`Human ready${human.version ? ' v'+human.version : ''}. Faces: ${res.face?.length ?? 0}`)
       } catch (e:any) {
         if (alive) setStatus('Human load error: ' + (e?.message || String(e)))
       }
     })()
-    return ()=>{ alive = false }
+    return ()=>{ alive = true }
   }, [])
 
   return (
