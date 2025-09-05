@@ -1,223 +1,169 @@
 'use client'
-import { useEffect, useMemo, useRef, useState } from 'react'
+export const dynamic = 'force-dynamic'
+
+import { useEffect, useRef, useState } from 'react'
 
 declare global {
   interface Window {
     human?: any
     Human?: any
-    Telegram?: any
+    Telegram?: { WebApp: { initDataUnsafe?: any } }
   }
-}
-
-type Step = 'intro' | 'scanning' | 'result'
-
-function useTelegramUser() {
-  return useMemo(() => {
-    const unsafe = (window as any).Telegram?.WebApp?.initDataUnsafe
-    const user = unsafe?.user
-    const name = user?.first_name || user?.username || 'Пользователь'
-    const id = user?.id ?? null
-    const startParam = unsafe?.start_param || ''
-    return { name, id, startParam }
-  }, [])
-}
-
-// парсим deep-link: bot?start=mode_verification_<faceId>
-function parseMode(startParam: string) {
-  const parts = String(startParam || '').split('_')
-  const mode = (parts[1] === 'verification') ? 'verification' : 'identification'
-  const faceId = parts[2] ? Number(parts[2]) : undefined
-  return { mode, faceId }
 }
 
 export default function Page() {
-  const { name, id: tgUserId, startParam } = useTelegramUser()
-  const { mode, faceId } = parseMode(startParam)
-
-  const [step, setStep] = useState<Step>('intro')
-  const [consent, setConsent] = useState(false)
-  const [status, setStatus] = useState('')
-  const [faces, setFaces] = useState(0)
-  const [result, setResult] = useState<{ ok?: boolean; passed?: boolean; dist?: number; msg?: string } | null>(null)
-  const [busy, setBusy] = useState(false)
-
   const videoRef = useRef<HTMLVideoElement>(null)
-  const snapRef  = useRef<HTMLCanvasElement>(null)
   const overlayRef = useRef<HTMLCanvasElement>(null)
 
-  const humanCfg: any = {
+  const [step, setStep] = useState<'welcome' | 'camera'>('welcome')
+  const [agree, setAgree] = useState(false)
+  const [userName, setUserName] = useState('Гость')
+  const [faces, setFaces] = useState(0)
+
+  const humanConfig = {
     modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human/models',
+    cacheSensitivity: 0,
     warmup: 'face',
-    face: {
-      enabled: true,
-      detector: { rotation: true, rotate: true, maxDetected: 1 },
-      mesh: { enabled: true },
-      description: { enabled: true },
-      iris: { enabled: false }, emotion: { enabled: false }, attention: { enabled: false },
+    face: { enabled: true, detector: { rotation: true, maxDetected: 1 }, mesh: { enabled: true } }
+  } as any
+
+  // Получаем имя из Telegram только на клиенте
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const u = window.Telegram?.WebApp?.initDataUnsafe?.user
+      if (u) setUserName(`${u.first_name} ${u.last_name || ''}`)
     }
-  }
+  }, [])
 
-  function aHashFromCanvas(canvas: HTMLCanvasElement): string {
-    const w=8, h=8
-    const t = document.createElement('canvas'); t.width=w; t.height=h
-    const tctx = t.getContext('2d')!
-    tctx.drawImage(canvas, 0, 0, w, h)
-    const { data } = tctx.getImageData(0,0,w,h)
-    let sum=0; const g:number[]=[]
-    for (let i=0;i<data.length;i+=4){ const v=0.299*data[i]+0.587*data[i+1]+0.114*data[i+2]; g.push(v); sum+=v }
-    const avg = sum/g.length
-    let bits=''; for (const v of g) bits += (v>avg?'1':'0')
-    return BigInt('0b'+bits).toString(16).padStart(16,'0')
-  }
+  async function startVerification() {
+    if (!agree) {
+      alert('Необходимо согласиться на обработку данных')
+      return
+    }
+    setStep('camera')
 
-  async function ensureHuman() {
-    const startT = Date.now()
+    // ждём загрузку Human
+    let human: any = null
+    const start = Date.now()
     while (!(window.human || window.Human)) {
-      if (Date.now() - startT > 10000) throw new Error('Human UMD not loaded')
-      await new Promise(r=>setTimeout(r,100))
+      if (Date.now() - start > 10000) throw new Error('Human UMD not loaded')
+      await new Promise(r => setTimeout(r, 100))
     }
-    let human:any
-    if (window.human?.load) { human = window.human; try{ Object.assign(human.config ?? (human.config={}), humanCfg) }catch{} }
-    else if (typeof window.Human === 'function') human = new (window as any).Human(humanCfg)
-    else throw new Error('Unsupported UMD shape')
-    await human.load(); await human.warmup()
-    return human
-  }
-
-  async function onStartVerification() {
-    if (busy) return
-    if (!consent) {
-      setStatus('Поставьте галочку согласия')
-      return
+    if (window.human && typeof window.human.load === 'function') {
+      human = window.human
+      Object.assign(human.config ?? (human.config = {}), humanConfig)
+    } else if (typeof window.Human === 'function') {
+      human = new (window as any).Human(humanConfig)
     }
-    if (mode !== 'verification' || !faceId) {
-      setStatus('Отсутствует параметр faceId (deep-link)')
-      return
+    await human.load()
+    await human.warmup()
+
+    // камера
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream
+      await videoRef.current.play()
     }
-    setBusy(true)
-    try {
-      setStatus('Инициализация…')
-      const human = await ensureHuman()
 
-      setStatus('Запрос доступа к камере…')
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode:'user', width:{ideal:640}, height:{ideal:640} },
-        audio: false
-      })
-      const v = videoRef.current!
-      v.srcObject = stream; await v.play()
-
-      const w = v.videoWidth || 640, h = v.videoHeight || 640
-      const snap = snapRef.current!, ov = overlayRef.current!
-      snap.width = ov.width = w; snap.height = ov.height = h
-
-      setStep('scanning')
-      setStatus('Сканируем… держите лицо в рамке')
-      let goodFrames = 0
-      let best: any = null
-      const minGoodFrames = 8
-
-      const loop = async () => {
-        if (step !== 'scanning') return
-        const res = await human.detect(v, humanCfg)
-        setFaces(res?.face?.length || 0)
-
-        const ctx = ov.getContext('2d')!
-        ctx.clearRect(0,0,w,h)
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(30,130,255,0.9)'
-        ctx.beginPath(); ctx.arc(w/2,h/2,Math.min(w,h)*0.34,0,Math.PI*2); ctx.stroke()
-
-        if (res.face?.length === 1 && res.face[0].descriptor?.length) {
-          goodFrames++
-          const area = res.face[0].box[2] * res.face[0].box[3]
-          if (!best || area > best.area) best = { res: res.face[0], area }
-        } else {
-          goodFrames = 0
-        }
-
-        if (goodFrames >= minGoodFrames && best) {
-          const snapCtx = snap.getContext('2d')!
-          snapCtx.drawImage(v, 0, 0, w, h)
-          const dataUrl = snap.toDataURL('image/jpeg', 0.92)
-          const ahash = aHashFromCanvas(snap)
-          const descriptor = Array.from(best.res.descriptor as number[])
-
-          ;(v.srcObject as MediaStream).getTracks().forEach(t=>t.stop())
-
-          setStatus('Проверка…')
-          const r = await fetch('/api/verify-mode', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({ face_id: faceId, dataUrl, ahash, descriptor, tg_user_id: tgUserId, display_name: name })
-          })
-          const json = await r.json()
-          if (!r.ok) {
-            setResult({ ok:false, msg: json.error || r.statusText })
-          } else {
-            setResult({ ok:true, passed: json.passed, dist: json.dist })
-          }
-          setStep('result')
-          setBusy(false)
-          return
-        }
-        setTimeout(loop, 120)
+    // цикл детекции
+    const loop = async () => {
+      if (videoRef.current) {
+        const res = await human.detect(videoRef.current, humanConfig)
+        setFaces(res.face.length)
+        drawOverlay(res)
       }
-      loop()
-    } catch (e: any) {
-      setBusy(false)
-      setStatus(e?.message || 'Ошибка доступа к камере')
+      requestAnimationFrame(loop)
     }
+    loop()
   }
 
-  const wrap: React.CSSProperties = { minHeight: '100dvh', display:'grid', placeItems:'center', background:'#f5f5f7', color:'#0a0a0a' }
-  const card: React.CSSProperties = { width:'min(92vw, 460px)', background:'#fff', borderRadius:24, boxShadow:'0 6px 30px rgba(0,0,0,0.08)', padding:24 }
+  function drawOverlay(res: any) {
+    const o = overlayRef.current!
+    const ctx = o.getContext('2d')!
+    o.width = videoRef.current?.videoWidth || 640
+    o.height = videoRef.current?.videoHeight || 480
+
+    // затемнение вокруг круга (FaceID-style)
+    ctx.clearRect(0, 0, o.width, o.height)
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'
+    ctx.fillRect(0, 0, o.width, o.height)
+    const cx = o.width / 2, cy = o.height / 2
+    const r = Math.min(o.width, o.height) * 0.35
+    ctx.globalCompositeOperation = 'destination-out'
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.globalCompositeOperation = 'source-over'
+
+    // рамка
+    ctx.lineWidth = 4
+    ctx.strokeStyle = faces > 0 ? '#10b981' : '#9ca3af'
+    ctx.beginPath()
+    ctx.arc(cx, cy, r, 0, Math.PI * 2)
+    ctx.stroke()
+  }
 
   return (
-    <div style={wrap}>
-      {step === 'intro' && (
-        <section style={card}>
-          <h1 style={{ fontSize:28, fontWeight:700 }}>Верификация</h1>
-          <div style={{ marginTop:6, marginBottom:18 }}>Здравствуйте, <b>{name}</b></div>
-          <label style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
-            <input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)} />
-            <span>Я согласен(на) на обработку изображения лица</span>
+    <main
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif',
+        background: step === 'welcome' ? '#f9fafb' : '#000',
+        color: step === 'welcome' ? '#111' : '#fff',
+        transition: 'all 0.4s ease'
+      }}
+    >
+      {step === 'welcome' && (
+        <div style={{
+          width: '100%',
+          maxWidth: 400,
+          textAlign: 'center',
+          padding: 24,
+          borderRadius: 16,
+          background: '#fff',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.1)'
+        }}>
+          <h1 style={{ fontSize: '1.8rem', marginBottom: 12 }}>Привет, {userName} 👋</h1>
+          <p style={{ fontSize: '1rem', color: '#4b5563', marginBottom: 20 }}>
+            Для продолжения нужно пройти FaceID-верификацию
+          </p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20, cursor: 'pointer' }}>
+            <input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />
+            <span>Согласен на обработку персональных данных</span>
           </label>
-          <button onClick={onStartVerification} disabled={busy}
-            style={{ width:'100%', marginTop:16, padding:'14px 16px', borderRadius:14, border:'none',
-                     background:'#0a84ff', color:'#fff', fontWeight:700, fontSize:16, cursor:'pointer' }}>
-            Пройти верификацию
+          <button
+            onClick={startVerification}
+            style={{
+              width: '100%',
+              padding: '14px 20px',
+              borderRadius: 12,
+              border: 'none',
+              background: agree ? '#10b981' : '#9ca3af',
+              color: '#fff',
+              fontSize: '1.1rem',
+              fontWeight: 600,
+              cursor: agree ? 'pointer' : 'not-allowed',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            🚀 Пройти верификацию
           </button>
-          {status && <div style={{ fontSize:12, opacity:0.6, marginTop:12 }}>{status}</div>}
-        </section>
+        </div>
       )}
 
-      {step === 'scanning' && (
-        <section style={{ ...card, width:'min(94vw,700px)' }}>
-          <h1 style={{ fontSize:22, fontWeight:600 }}>Держите лицо в рамке</h1>
-          <div style={{ position:'relative', width:'100%', aspectRatio:'1/1', borderRadius:16, overflow:'hidden', background:'#000' }}>
-            <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', height:'100%', objectFit:'cover' }} />
-            <canvas ref={overlayRef} style={{ position:'absolute', inset:0, width:'100%', height:'100%' }} />
-          </div>
-          <div style={{ fontSize:12, opacity:0.6 }}>{status}</div>
-          <canvas ref={snapRef} style={{ display:'none' }} />
-        </section>
+      {step === 'camera' && (
+        <div style={{ position: 'relative', width: '100%', maxWidth: 420 }}>
+          <video ref={videoRef} autoPlay playsInline muted style={{ width: '100%', borderRadius: 20 }} />
+          <canvas ref={overlayRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
+          <p style={{ textAlign: 'center', marginTop: 12, fontSize: '1rem', color: '#9ca3af' }}>
+            {faces > 0 ? '✅ Лицо распознано' : 'Поместите лицо в рамку'}
+          </p>
+        </div>
       )}
-
-      {step === 'result' && (
-        <section style={card}>
-          <h1 style={{ fontSize:24, fontWeight:700 }}>Результат</h1>
-          {result?.ok ? (
-            <div style={{ marginTop:10, fontSize:18 }}>
-              {result.passed ? '✅ Верификация пройдена' : '❌ Верификация не пройдена'}
-            </div>
-          ) : (
-            <div style={{ color:'#d00', marginTop:10 }}>Ошибка: {result?.msg || 'Неизвестная ошибка'}</div>
-          )}
-          <button onClick={()=>{ setStep('intro'); setResult(null); setStatus(''); setConsent(false) }}
-            style={{ width:'100%', marginTop:16, padding:'14px 16px', borderRadius:14, border:'none', background:'#34c759', color:'#fff', fontWeight:700 }}>
-            Готово
-          </button>
-        </section>
-      )}
-    </div>
+    </main>
   )
 }
