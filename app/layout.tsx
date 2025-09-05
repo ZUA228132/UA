@@ -1,13 +1,13 @@
-import Script from 'next/script'
+// app/layout.tsx
+import './globals.css'
+import { ReactNode } from 'react'
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="ru">
       <head>
-        {/* Telegram SDK через прокси */}
-        <Script src="/api/telegram-sdk" strategy="beforeInteractive" />
-        {/* Human UMD */}
-        <Script
+        {/* подключаем Human.js глобально */}
+        <script
           src="https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js"
           strategy="beforeInteractive"
         />
