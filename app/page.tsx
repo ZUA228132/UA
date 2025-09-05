@@ -3,14 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 
 declare global {
   interface Window {
-    Human?: any      // UMD constructor
-    human?: any      // possible singleton
+    Human?: any      // maybe constructor, maybe plain object
+    human?: any      // singleton
   }
 }
 
 async function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    // don't double-inject
     const same = Array.from(document.scripts).find(s => s.src === src)
     if (same) { if ((same as any).loaded) return resolve(); same.addEventListener('load', () => resolve()); return }
     const s = document.createElement('script')
@@ -22,20 +21,25 @@ async function loadScript(src: string): Promise<void> {
   })
 }
 
+function detectMode(): 'constructor' | 'singleton' | null {
+  if (typeof window.Human === 'function') return 'constructor'
+  if (window.human && typeof window.human === 'object' && typeof window.human.load === 'function') return 'singleton'
+  return null
+}
+
 async function ensureHumanAvailable(): Promise<'constructor'|'singleton'> {
-  // if already present, short-circuit
-  if (window.Human) return 'constructor'
-  if (window.human) return 'singleton'
+  const first = detectMode()
+  if (first) return first
 
   // try our domain first
   await loadScript('/api/human').catch(()=>{})
-  if (window.Human) return 'constructor'
-  if (window.human) return 'singleton'
+  const second = detectMode()
+  if (second) return second
 
-  // then try jsDelivr (single fallback)
+  // then try jsDelivr
   await loadScript('https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js').catch(()=>{})
-  if (window.Human) return 'constructor'
-  if (window.human) return 'singleton'
+  const third = detectMode()
+  if (third) return third
 
   throw new Error('Human global not found after loading')
 }
@@ -79,7 +83,7 @@ export default function Page(){
         if (alive) setStatus('Human load error: ' + (e?.message || String(e)))
       }
     })()
-    return ()=>{ alive = true }
+    return ()=>{ alive = false }
   }, [])
 
   return (
