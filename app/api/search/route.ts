@@ -35,8 +35,12 @@ export async function POST(req: Request) {
     // fetch candidates (prune by approved, not banned)
     const where = onlyApproved ? 'where approved = true and banned = false' : 'where banned = false'
     // For demo: limit to 1000 latest
-    const { rows } = await pool.query(`select id, tg_user_id, image_url, ahash, descriptor from faces ${where} order by created_at desc limit 1000`)
-
+   const { rows }: { rows: any[] } = await pool.query(
+  `select id, tg_user_id, image_url, ahash, descriptor
+   from faces ${where}
+   order by created_at desc
+   limit 1000`
+  )
     let matches
     if (queryDescriptor && queryDescriptor.length > 0) {
       matches = topKByDescriptor(queryDescriptor, rows, topK).filter(m => m.dist <= thresholdL2)
