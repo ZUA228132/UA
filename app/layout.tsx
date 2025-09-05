@@ -1,20 +1,27 @@
 // app/layout.tsx
-export const metadata = {
-  title: 'TG Face WebApp',
-  description: 'FaceID-like WebApp',
+import './globals.css'
+import type { Metadata } from 'next'
+import { ReactNode } from 'react'
+import Script from 'next/script'
+
+export const metadata: Metadata = {
+  title: 'Верифікація',
+  description: 'FaceID-верифікація користувачів',
 }
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="uk"> {/* язык UI — украинский */}
+    <html lang="uk">
       <head>
-        {/* Телеграм SDK через ваш прокси */}
-        <script src="/api/telegram-sdk" />
-        {/* Human UMD с CDN */}
-        <script src="https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js" />
-        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+        {/* Human.js подключаем как UMD до рендера */}
+        <Script
+          src="https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js"
+          strategy="beforeInteractive"
+        />
       </head>
-      <body style={{ background: '#000', color: '#fff', margin: 0 }}>{children}</body>
+      <body className="bg-black text-white">
+        {children}
+      </body>
     </html>
   )
 }
