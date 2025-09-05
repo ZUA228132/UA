@@ -1,44 +1,84 @@
+export const runtime = 'nodejs'
 
-import { NextRequest, NextResponse } from 'next/server';
-import { verifyInitData, isAllowedUser } from '@/lib/telegram';
-import { pool, ensureSchema, logEvent } from '@/lib/db';
-import { z } from 'zod';
-export const runtime = 'nodejs';
+import { NextResponse } from 'next/server'
+import { put } from '@vercel/blob'
+import { pool, ensureSchema } from '@/lib/db'
 
-const Schema = z.object({
-  initData: z.string(),
-  mode: z.enum(['verification','identification']),
-  embedding: z.array(z.number()),
-  subjectId: z.number().optional(),
-  topK: z.number().default(5),
-  minSimilarity: z.number().default(0.6),
-  metrics: z.any().optional()
-});
+type Body = {
+  face_id: number                   // с чем сравниваем
+  dataUrl: string                   // JPEG dataURL снятого кадра
+  ahash: string                     // 16-символьный hex (8x8 aHash)
+  descriptor?: number[]             // опционально: дескриптор Human
+  tg_user_id?: number | null
+  display_name?: string | null
+  profile_url?: string | null
+  thresholdAhash?: number           // дефолт 10
+  thresholdL2?: number              // дефолт 0.85
+}
 
-export async function POST(req: NextRequest) {
-  const body = await req.json();
-  const parsed = Schema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { initData, mode, embedding, subjectId, topK, minSimilarity, metrics } = parsed.data;
+/** простая L2 */
+function l2(a: number[], b: number[]) {
+  const n = Math.min(a.length, b.length)
+  let s = 0; for (let i=0;i<n;i++){ const d = a[i]-b[i]; s += d*d }
+  return Math.sqrt(s)
+}
+/** Hamming для 64-бит ahash */
+function ham(a: string, b: string) {
+  const x = (BigInt('0x'+a) ^ BigInt('0x'+b)).toString(2)
+  let c = 0; for (let i=0;i<x.length;i++) if (x[i]==='1') c++
+  return c
+}
 
-  const { ok, userId } = verifyInitData(initData, process.env.BOT_TOKEN || '');
-  if (!ok || !isAllowedUser(userId)) return NextResponse.json({ error: 'auth' }, { status: 401 });
-  await ensureSchema();
+export async function POST(req: Request) {
+  try {
+    await ensureSchema()
+    const {
+      face_id, dataUrl, ahash, descriptor = [],
+      tg_user_id = null, display_name = null, profile_url = null,
+      thresholdAhash = 10, thresholdL2 = 0.85
+    } = (await req.json()) as Body
 
-  const vector = new Array(1024).fill(0).map((_, i) => Number(embedding[i] || 0));
+    if (!face_id)  return NextResponse.json({ error: 'face_id required' }, { status: 400 })
+    if (!dataUrl)  return NextResponse.json({ error: 'dataUrl required' }, { status: 400 })
+    if (!ahash)    return NextResponse.json({ error: 'ahash required' }, { status: 400 })
 
-  if (mode === 'verification') {
-    if (!subjectId) return NextResponse.json({ error: 'subjectId required' }, { status: 400 });
-    const q = `SELECT id, display_name, profile_url, image_url, 1 - (embedding <=> $1::vector) AS similarity FROM faces WHERE approved = true AND id = $2`;
-    const r = await pool.query(q, [vector, subjectId]);
-    await logEvent(userId || null, 'verify_1to1', { subjectId, metrics: metrics || null });
-    if (r.rowCount === 0) return NextResponse.json({ ok: true, match: false });
-    const sim = r.rows[0].similarity;
-    return NextResponse.json({ ok: true, match: sim >= minSimilarity, similarity: sim, face: r.rows[0] });
-  } else {
-    const q = `SELECT id, display_name, profile_url, image_url, 1 - (embedding <=> $1::vector) AS similarity FROM faces WHERE approved = true AND 1 - (embedding <=> $1::vector) >= $2 ORDER BY embedding <=> $1::vector LIMIT $3`;
-    const r = await pool.query(q, [vector, minSimilarity, Math.min(50, Math.max(1, topK))]);
-    await logEvent(userId || null, 'identify_1toN', { count: r.rowCount, metrics: metrics || null });
-    return NextResponse.json({ ok: true, results: r.rows });
+    // 1) загружаем референс
+    const { rows } = await pool.query(`select id, image_url, ahash, descriptor from faces where id = $1 and banned = false limit 1`, [face_id])
+    if (!rows.length) return NextResponse.json({ error: 'reference not found' }, { status: 404 })
+    const ref = rows[0]
+
+    // 2) считаем дистанции
+    let passed = false
+    let dist: number | null = null
+    if (descriptor?.length && Array.isArray(ref.descriptor)) {
+      dist = l2(descriptor, ref.descriptor as number[])
+      passed = dist <= thresholdL2
+    } else if (ref.ahash) {
+      dist = ham(ahash, ref.ahash)
+      passed = dist <= thresholdAhash
+    } else {
+      return NextResponse.json({ error: 'reference has no comparable features' }, { status: 400 })
+    }
+
+    // 3) грузим снимок в Blob
+    const b64 = String(dataUrl).split(',')[1]
+    const buf = Buffer.from(b64, 'base64')
+    const blob = await put(`verify/${Date.now()}.jpg`, buf, { access: 'public', contentType: 'image/jpeg' })
+
+    // 4) протоколируем в faces: если passed — сразу approved=true, иначе false (уйдёт в «pending»)
+    const { rows: saved } = await pool.query(
+      `insert into faces (tg_user_id, display_name, profile_url, image_url, ahash, descriptor, approved)
+       values ($1,$2,$3,$4,$5,$6,$7)
+       returning id, image_url, approved`,
+      [tg_user_id, display_name, profile_url, blob.url, ahash, JSON.stringify(descriptor||[]), passed]
+    )
+
+    return NextResponse.json({
+      passed, dist,
+      saved: saved[0],
+      ref: { id: ref.id, image_url: ref.image_url }
+    })
+  } catch (e:any) {
+    return NextResponse.json({ error: e?.message || 'internal error' }, { status: 500 })
   }
 }
