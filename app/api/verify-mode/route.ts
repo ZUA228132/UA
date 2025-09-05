@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyInitData, isAllowedUser } from '@/lib/telegram';
 import { pool, ensureSchema, logEvent } from '@/lib/db';
 import { z } from 'zod';
+export const runtime = 'nodejs';
 
 const Schema = z.object({
   initData: z.string(),
