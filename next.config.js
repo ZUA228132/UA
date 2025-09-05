@@ -12,13 +12,13 @@ const nextConfig = {
     },
   ],
   webpack: (config, { isServer }) => {
-    // убираем костыли с human
     if (!isServer) {
+      // Just in case some lib tries to require node-only modules in client
       config.resolve.alias['@tensorflow/tfjs-node'] = false;
       config.resolve.alias['fs'] = false;
     }
     return config;
   },
-};
+}
 
-module.exports = nextConfig;
+module.exports = nextConfig
