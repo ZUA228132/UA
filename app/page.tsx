@@ -14,15 +14,14 @@ declare global {
 type Step = 'intro' | 'scanning' | 'result'
 type TgInfo = { name: string; id: number | null; startParam: string }
 
-// Тільки режим, без faceId: використовуємо Telegram user_id як ключ
+// За замовчуванням режим — verification (щоб працювало без диплінку)
 function parseMode(startParam: string) {
   const parts = String(startParam || '').split('_')
-  const mode = parts[1] === 'verification' ? 'verification' : 'identification'
-  return { mode }
+  const parsed = parts[1] === 'verification' ? 'verification' : (parts[1] === 'identification' ? 'identification' : 'verification')
+  return { mode: parsed }
 }
 
 export default function Page() {
-  // Дані Telegram читаємо лише на клієнті
   const [tg, setTg] = useState<TgInfo>({ name: 'Користувач', id: null, startParam: '' })
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -47,7 +46,6 @@ export default function Page() {
   const snapRef = useRef<HTMLCanvasElement>(null)
   const ringRef = useRef<HTMLDivElement>(null)
 
-  // Прогрес «хороших» кадрів
   const minGoodFrames = 48
   const [goodFrames, setGoodFrames] = useState(0)
 
@@ -99,7 +97,7 @@ export default function Page() {
   async function onStartVerification() {
     if (busy) return
     if (!consent) { setStatus('Поставте позначку згоди'); return }
-    if (mode !== 'verification') { setStatus('Невірний режим'); return }
+    // режим завжди є (за замовчуванням verification), тому додаткова перевірка не потрібна
     if (!tg.id) { setStatus('Telegram ID недоступний'); return }
 
     setBusy(true)
@@ -130,7 +128,6 @@ export default function Page() {
         const res = await human.detect(v, humanCfg)
         setFaces(res?.face?.length || 0)
 
-        // Оцінка «якісного» кадру
         let ok = false
         if (res.face?.length === 1 && res.face[0].descriptor?.length) {
           const f = res.face[0]
@@ -161,7 +158,7 @@ export default function Page() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              face_id: tg.id,              // КЛЮЧ: Telegram user_id
+              face_id: tg.id,          // використовуємо Telegram user_id як ключ
               dataUrl,
               ahash,
               descriptor,
@@ -186,7 +183,7 @@ export default function Page() {
     }
   }
 
-  // ——— UI ———
+  // ——— стилі inline для каркаса (UI — укр.) ———
   const wrap: React.CSSProperties = {
     minHeight: '100dvh',
     padding: 'max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))',
