@@ -1,4 +1,7 @@
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 import { NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import { pool, ensureSchema } from '@/lib/db'
@@ -31,7 +34,7 @@ export async function POST(req: Request) {
     const buf = Buffer.from(b64, 'base64')
     const blob = await put(`faces/${Date.now()}.jpg`, buf, { access: 'public', contentType: 'image/jpeg' })
 
-    const { rows } = await pool.query(
+    const { rows }: { rows: any[] } = await pool.query(
       `insert into faces (tg_user_id, display_name, profile_url, image_url, ahash, descriptor, approved)
        values ($1,$2,$3,$4,$5,$6,$7)
        returning *`,

@@ -1,27 +1,22 @@
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 import { NextResponse } from 'next/server'
-import { pool } from '@/lib/db'
+import { pool, ensureSchema } from '@/lib/db'
 
 export async function GET() {
-  // pending = лица, которые ещё не одобрены и не забанены
-  const { rows: pending } = await pool.query(`
-    select f.*
-    from faces f
-    left join bans b on b.tg_user_id = f.tg_user_id
-    where f.approved = false and b.tg_user_id is null
-    order by f.created_at desc
-    limit 100
-  `)
-
-  // recent = лица, которые одобрены и не забанены
-  const { rows: recent } = await pool.query(`
-    select f.*
-    from faces f
-    left join bans b on b.tg_user_id = f.tg_user_id
-    where f.approved = true and b.tg_user_id is null
-    order by f.created_at desc
-    limit 50
-  `)
-
-  return NextResponse.json({ pending, recent })
+  try {
+    await ensureSchema()
+    const { rows: pending }: { rows: any[] } = await pool.query(
+      `select * from faces where approved = false and banned = false order by created_at desc limit 100`
+    )
+    const { rows: recent }: { rows: any[] } = await pool.query(
+      `select * from faces where approved = true and banned = false order by created_at desc limit 50`
+    )
+    return NextResponse.json({ pending, recent })
+  } catch (e:any) {
+    // Пустой ответ вместо падения билдов/функций
+    return NextResponse.json({ pending: [], recent: [], error: e?.message }, { status: 200 })
+  }
 }

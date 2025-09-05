@@ -1,11 +1,15 @@
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 import { NextResponse } from 'next/server'
-import { pool } from '@/lib/db'
+import { pool, ensureSchema } from '@/lib/db'
 
 export async function GET(req: Request) {
+  await ensureSchema()
   const { searchParams } = new URL(req.url)
   const format = searchParams.get('format') || 'json'
-  const { rows } = await pool.query(`select * from faces order by id asc`)
+  const { rows }: { rows: any[] } = await pool.query(`select * from faces order by id asc`)
   if (format === 'csv') {
     const header = 'id,tg_user_id,display_name,profile_url,image_url,ahash,approved,banned,created_at\n'
     const csv = header + rows.map((x:any)=>[

@@ -1,28 +1,28 @@
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 import { NextResponse } from 'next/server'
 import { put } from '@vercel/blob'
 import { pool, ensureSchema } from '@/lib/db'
 
 type Body = {
-  face_id: number                   // с чем сравниваем
-  dataUrl: string                   // JPEG dataURL снятого кадра
-  ahash: string                     // 16-символьный hex (8x8 aHash)
-  descriptor?: number[]             // опционально: дескриптор Human
+  face_id: number
+  dataUrl: string
+  ahash: string
+  descriptor?: number[]
   tg_user_id?: number | null
   display_name?: string | null
   profile_url?: string | null
-  thresholdAhash?: number           // дефолт 10
-  thresholdL2?: number              // дефолт 0.85
+  thresholdAhash?: number
+  thresholdL2?: number
 }
 
-/** простая L2 */
 function l2(a: number[], b: number[]) {
   const n = Math.min(a.length, b.length)
   let s = 0; for (let i=0;i<n;i++){ const d = a[i]-b[i]; s += d*d }
   return Math.sqrt(s)
 }
-/** Hamming для 64-бит ahash */
 function ham(a: string, b: string) {
   const x = (BigInt('0x'+a) ^ BigInt('0x'+b)).toString(2)
   let c = 0; for (let i=0;i<x.length;i++) if (x[i]==='1') c++
@@ -42,12 +42,13 @@ export async function POST(req: Request) {
     if (!dataUrl)  return NextResponse.json({ error: 'dataUrl required' }, { status: 400 })
     if (!ahash)    return NextResponse.json({ error: 'ahash required' }, { status: 400 })
 
-    // 1) загружаем референс
-    const { rows } = await pool.query(`select id, image_url, ahash, descriptor from faces where id = $1 and banned = false limit 1`, [face_id])
+    const { rows }: { rows: any[] } = await pool.query(
+      `select id, image_url, ahash, descriptor from faces where id = $1 and banned = false limit 1`,
+      [face_id]
+    )
     if (!rows.length) return NextResponse.json({ error: 'reference not found' }, { status: 404 })
     const ref = rows[0]
 
-    // 2) считаем дистанции
     let passed = false
     let dist: number | null = null
     if (descriptor?.length && Array.isArray(ref.descriptor)) {
@@ -60,13 +61,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'reference has no comparable features' }, { status: 400 })
     }
 
-    // 3) грузим снимок в Blob
     const b64 = String(dataUrl).split(',')[1]
     const buf = Buffer.from(b64, 'base64')
     const blob = await put(`verify/${Date.now()}.jpg`, buf, { access: 'public', contentType: 'image/jpeg' })
 
-    // 4) протоколируем в faces: если passed — сразу approved=true, иначе false (уйдёт в «pending»)
-    const { rows: saved } = await pool.query(
+    const { rows: saved }: { rows: any[] } = await pool.query(
       `insert into faces (tg_user_id, display_name, profile_url, image_url, ahash, descriptor, approved)
        values ($1,$2,$3,$4,$5,$6,$7)
        returning id, image_url, approved`,

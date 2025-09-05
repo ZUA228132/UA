@@ -5,7 +5,7 @@ export const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 })
 
-// idempotent schema init (call on first write ops)
+// idempotent schema init (call on first write/read ops)
 export async function ensureSchema() {
   await pool.query(`
     create table if not exists faces (

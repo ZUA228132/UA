@@ -1,21 +1,36 @@
 export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 import { NextResponse } from 'next/server'
-import { pool } from '@/lib/db'
-import { topKByAhash, topKByDescriptor } from '@/lib/match'
+import { pool, ensureSchema } from '@/lib/db'
+
+function l2(a: number[], b: number[]): number {
+  const n = Math.min(a.length, b.length)
+  let s = 0
+  for (let i=0;i<n;i++){ const d=a[i]-b[i]; s+=d*d }
+  return Math.sqrt(s)
+}
+function ham(a: string, b: string) {
+  const x = (BigInt('0x'+a) ^ BigInt('0x'+b)).toString(2)
+  let c = 0; for (let i=0;i<x.length;i++) if (x[i]==='1') c++
+  return c
+}
 
 type SearchBody = {
   mode?: 'identification' | 'verification'
   queryAhash?: string
   queryDescriptor?: number[]
-  face_id?: number  // for verification when comparing with a specific face
+  face_id?: number
   topK?: number
-  thresholdAhash?: number   // max Hamming distance
-  thresholdL2?: number      // max L2 distance
+  thresholdAhash?: number
+  thresholdL2?: number
   onlyApproved?: boolean
 }
 
 export async function POST(req: Request) {
   try {
+    await ensureSchema()
     const body = await req.json() as SearchBody
     const {
       mode = 'identification',
@@ -32,37 +47,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'no query features provided' }, { status: 400 })
     }
 
-    // fetch candidates (prune by approved, not banned)
     const where = onlyApproved ? 'where approved = true and banned = false' : 'where banned = false'
-    // For demo: limit to 1000 latest
-   const { rows }: { rows: any[] } = await pool.query(
-  `select id, tg_user_id, image_url, ahash, descriptor
-   from faces ${where}
-   order by created_at desc
-   limit 1000`
-  )
-    let matches
-    if (queryDescriptor && queryDescriptor.length > 0) {
-      matches = topKByDescriptor(queryDescriptor, rows, topK).filter(m => m.dist <= thresholdL2)
-    } else {
-      matches = topKByAhash(queryAhash as string, rows, topK).filter(m => m.dist <= thresholdAhash)
-    }
+    const { rows }: { rows: any[] } = await pool.query(`
+      select id, tg_user_id, image_url, ahash, descriptor
+      from faces ${where}
+      order by created_at desc
+      limit 1000
+    `)
 
     if (mode === 'verification') {
       if (!face_id) return NextResponse.json({ error: 'face_id required for verification' }, { status: 400 })
-      const ref = rows.find(r => r.id === face_id)
+      const ref = rows.find((r:any) => r.id === face_id)
       if (!ref) return NextResponse.json({ error: 'reference face not found' }, { status: 404 })
 
-      let dist = 1e9
       if (queryDescriptor && queryDescriptor.length && Array.isArray(ref.descriptor)) {
-        // @ts-ignore
-        const q = queryDescriptor, d = ref.descriptor as number[]
-        const n = Math.min(q.length, d.length); let s=0; for(let i=0;i<n;i++){const dd=q[i]-d[i]; s+=dd*dd} dist = Math.sqrt(s)
+        const dist = l2(queryDescriptor, ref.descriptor as number[])
         const passed = dist <= thresholdL2
         return NextResponse.json({ passed, dist, ref: { id: ref.id, image_url: ref.image_url } })
       } else if (queryAhash && ref.ahash) {
-        const x = (BigInt('0x'+queryAhash) ^ BigInt('0x'+ref.ahash)).toString(2)
-        dist = x.split('1').length - 1
+        const dist = ham(queryAhash, ref.ahash)
         const passed = dist <= thresholdAhash
         return NextResponse.json({ passed, dist, ref: { id: ref.id, image_url: ref.image_url } })
       } else {
@@ -71,7 +74,16 @@ export async function POST(req: Request) {
     }
 
     // identification
-    return NextResponse.json({ matches })
+    const scored = rows.map((r:any)=>{
+      if (queryDescriptor && queryDescriptor.length && Array.isArray(r.descriptor)) {
+        return { id:r.id, image_url:r.image_url, tg_user_id:r.tg_user_id, dist: l2(queryDescriptor, r.descriptor as number[]) }
+      } else {
+        return { id:r.id, image_url:r.image_url, tg_user_id:r.tg_user_id, dist: ham(String(queryAhash), r.ahash || '0') }
+      }
+    }).sort((a:any,b:any)=>a.dist-b.dist).slice(0, topK)
+    const filtered = scored.filter((m:any)=> (queryDescriptor?.length ? m.dist <= thresholdL2 : m.dist <= thresholdAhash))
+
+    return NextResponse.json({ matches: filtered })
   } catch (e:any) {
     return NextResponse.json({ error: e?.message || 'internal error' }, { status: 500 })
   }
