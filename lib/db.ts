@@ -1,51 +1,43 @@
-import { Pool } from 'pg';
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } });
+import { Pool } from 'pg'
 
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false },
+})
+
+// idempotent schema init (call on first write ops)
 export async function ensureSchema() {
   await pool.query(`
-    CREATE EXTENSION IF NOT EXISTS vector;
-    CREATE TABLE IF NOT EXISTS faces (
-      id BIGSERIAL PRIMARY KEY,
-      tg_user_id BIGINT NOT NULL,
-      display_name TEXT, profile_url TEXT,
-      embedding VECTOR(1024) NOT NULL,
-      image_url TEXT,
-      approved BOOLEAN DEFAULT false,
-      created_at TIMESTAMPTZ DEFAULT now()
+    create table if not exists faces (
+      id bigserial primary key,
+      tg_user_id bigint,
+      display_name text,
+      profile_url text,
+      image_url text,
+      ahash text not null,
+      descriptor jsonb,
+      approved boolean not null default true,
+      banned boolean not null default false,
+      created_at timestamptz not null default now()
     );
-    CREATE TABLE IF NOT EXISTS logs (
-      id BIGSERIAL PRIMARY KEY,
-      at TIMESTAMPTZ DEFAULT now(),
-      tg_user_id BIGINT,
-      event TEXT,
-      meta JSONB
-    );
-    CREATE TABLE IF NOT EXISTS bans (
-      tg_user_id BIGINT PRIMARY KEY,
-      reason TEXT,
-      banned_at TIMESTAMPTZ DEFAULT now()
-    );
-    CREATE TABLE IF NOT EXISTS reviews (
-      id BIGSERIAL PRIMARY KEY,
-      face_id BIGINT REFERENCES faces(id) ON DELETE CASCADE,
-      status TEXT DEFAULT 'pending',
-      note TEXT,
-      created_at TIMESTAMPTZ DEFAULT now()
-    );
-    DO $$ BEGIN
-      IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_faces_embedding_cos') THEN
-        CREATE INDEX idx_faces_embedding_cos ON faces USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-      END IF;
-    EXCEPTION WHEN others THEN
-      BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'idx_faces_embedding_l2') THEN
-          CREATE INDEX idx_faces_embedding_l2 ON faces USING ivfflat (embedding vector_l2_ops) WITH (lists = 100);
-        END IF;
-      EXCEPTION WHEN others THEN NULL; END;
-    END $$;
-  `);
+    create index if not exists faces_created_idx on faces (created_at desc);
+    create index if not exists faces_tg_idx on faces (tg_user_id);
+    create index if not exists faces_approved_idx on faces (approved);
+  `)
 }
 
-export async function logEvent(tg_user_id: number | null, event: string, meta: any) {
-  try { await pool.query('INSERT INTO logs (tg_user_id, event, meta) VALUES ($1,$2,$3)', [tg_user_id, event, meta]); } catch {}
+// tiny helper
+export async function tx<T>(fn: (client: any)=>Promise<T>): Promise<T> {
+  const client = await pool.connect()
+  try {
+    await client.query('begin')
+    const out = await fn(client)
+    await client.query('commit')
+    return out
+  } catch (e) {
+    await client.query('rollback')
+    throw e
+  } finally {
+    client.release()
+  }
 }
