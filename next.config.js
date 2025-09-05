@@ -1,7 +1,4 @@
 /** @type {import('next').NextConfig} */
-const path = require('path');
-const fs = require('fs');
-
 const nextConfig = {
   reactStrictMode: true,
   experimental: { serverActions: { allowedOrigins: ['*'] } },
@@ -15,14 +12,8 @@ const nextConfig = {
     },
   ],
   webpack: (config, { isServer }) => {
-    // Resolve absolute path to package.json, then join to dist/human.esm.js
-    const humanPkg = require.resolve('@vladmandic/human/package.json');
-    const humanEsm = path.join(humanPkg, '..', 'dist', 'human.esm.js');
-    if (!fs.existsSync(humanEsm)) {
-      throw new Error('Cannot find Human ESM at: ' + humanEsm);
-    }
-    // Exact-match alias to the package root
-    config.resolve.alias['@vladmandic/human$'] = humanEsm;
+    // Прямо указываем, что при импорте human нужно использовать ESM
+    config.resolve.alias['@vladmandic/human'] = require.resolve('@vladmandic/human/dist/human.esm.js');
 
     if (!isServer) {
       config.resolve.alias['@tensorflow/tfjs-node'] = false;
