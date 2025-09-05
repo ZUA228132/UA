@@ -12,12 +12,9 @@ const nextConfig = {
     },
   ],
   webpack: (config, { isServer }) => {
-    // Прямо указываем, что при импорте human нужно использовать ESM
-    config.resolve.alias['@vladmandic/human'] = require.resolve('@vladmandic/human/dist/human.esm.js');
-
+    // убираем костыли с human
     if (!isServer) {
       config.resolve.alias['@tensorflow/tfjs-node'] = false;
-      config.resolve.alias['@vladmandic/human/dist/human.node.js'] = false;
       config.resolve.alias['fs'] = false;
     }
     return config;
