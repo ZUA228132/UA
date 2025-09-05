@@ -14,7 +14,7 @@ declare global {
 type Step = 'intro' | 'scanning' | 'result'
 type TgInfo = { name: string; id: number | null; startParam: string }
 
-// За замовчуванням режим — verification (щоб працювало без диплінку)
+// Режим за замовчуванням — verification
 function parseMode(startParam: string) {
   const parts = String(startParam || '').split('_')
   const parsed = parts[1] === 'verification' ? 'verification' : (parts[1] === 'identification' ? 'identification' : 'verification')
@@ -22,15 +22,33 @@ function parseMode(startParam: string) {
 }
 
 export default function Page() {
+  // Дані Telegram читаємо лише на клієнті, з фолбеком на query (?tg_id=&name=) і демо-режим
   const [tg, setTg] = useState<TgInfo>({ name: 'Користувач', id: null, startParam: '' })
   useEffect(() => {
     if (typeof window === 'undefined') return
+    const q = new URLSearchParams(window.location.search)
     const unsafe = (window as any).Telegram?.WebApp?.initDataUnsafe
     const user = unsafe?.user
+
+    let id: number | null = user?.id ?? null
+    let name: string = user?.first_name || user?.username || 'Користувач'
+
+    // Фолбек через query (?tg_id=123&name=Ivan)
+    const qId = q.get('tg_id')
+    const qName = q.get('name')
+    if (!id && qId) id = Number(qId)
+    if (qName) name = qName
+
+    // Якщо ID все ще немає — демо-значення, щоб не блокувати тест
+    if (!id) {
+      id = Number(String(Date.now()).slice(-9)) // псевдо-ID
+      name = `${name} (демо)`
+    }
+
     setTg({
-      name: user?.first_name || user?.username || 'Користувач',
-      id: user?.id ?? null,
-      startParam: unsafe?.start_param || '',
+      name,
+      id,
+      startParam: unsafe?.start_param || q.get('start') || '',
     })
   }, [])
   const { mode } = parseMode(tg.startParam)
@@ -97,9 +115,7 @@ export default function Page() {
   async function onStartVerification() {
     if (busy) return
     if (!consent) { setStatus('Поставте позначку згоди'); return }
-    // режим завжди є (за замовчуванням verification), тому додаткова перевірка не потрібна
-    if (!tg.id) { setStatus('Telegram ID недоступний'); return }
-
+    // режим за замовчуванням — verification; tg.id гарантовано є (або демо)
     setBusy(true)
     try {
       setStatus('Ініціалізація…')
@@ -158,12 +174,13 @@ export default function Page() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              face_id: tg.id,          // використовуємо Telegram user_id як ключ
+              face_id: tg.id,              // Telegram user_id або демо-id
               dataUrl,
               ahash,
               descriptor,
               tg_user_id: tg.id,
               display_name: tg.name,
+              demo: String(tg.name).includes('(демо)') ? true : undefined,
             }),
           })
           const json = await r.json()
@@ -183,7 +200,7 @@ export default function Page() {
     }
   }
 
-  // ——— стилі inline для каркаса (UI — укр.) ———
+  // ——— UI ———
   const wrap: React.CSSProperties = {
     minHeight: '100dvh',
     padding: 'max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))',
