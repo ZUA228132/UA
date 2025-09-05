@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== Базовые настройки ===== */
+html,
+body {
+  height: 100%;
+  background-color: #000; /* чёрный фон в стиле Face ID */
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ===== Ссылки ===== */
+a {
+  @apply text-emerald-400 hover:text-emerald-300 transition;
+}
+
+/* ===== Кнопки ===== */
+button {
+  @apply transition-colors duration-200;
+}
+
+button:disabled {
+  @apply bg-gray-500 cursor-not-allowed;
+}
+
+/* ===== Анимации переходов ===== */
+.fade-enter {
+  opacity: 0;
+  transform: scale(0.98);
+}
+
+.fade-enter-active {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.fade-exit {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.fade-exit-active {
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
