@@ -6,8 +6,9 @@ const nextConfig = {
     {
       source: "/:path*",
       headers: [
-        { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
-        { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+        // Убрали COOP/COEP, чтобы Telegram SDK не блокировался CORP
+        // { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+        // { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
         { key: "Cross-Origin-Resource-Policy", value: "cross-origin" },
       ],
     },
