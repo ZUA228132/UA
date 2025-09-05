@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyInitData, isAllowedUser } from '@/lib/telegram';
 import { pool, ensureSchema, logEvent } from '@/lib/db';
 import { put } from '@vercel/blob';
+export const runtime = 'nodejs';
 
 export const dynamic = 'force-dynamic';
 
