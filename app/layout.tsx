@@ -6,9 +6,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         {/* Telegram SDK через прокси */}
         <Script src="/api/telegram-sdk" strategy="beforeInteractive" />
-        {/* Human UMD (зафиксированная версия) */}
+        {/* Human UMD */}
         <Script
-          src="https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.5/dist/human.js"
+          src="https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js"
           strategy="beforeInteractive"
         />
       </head>
