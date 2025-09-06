@@ -1,27 +1,17 @@
-// app/layout.tsx
 import './globals.css'
-import type { Metadata } from 'next'
-import { ReactNode } from 'react'
-import Script from 'next/script'
 
-export const metadata: Metadata = {
-  title: 'Верифікація',
-  description: 'FaceID-верифікація користувачів',
+export const metadata = {
+  title: 'TG Face WebApp',
+  description: 'FaceID-like WebApp',
 }
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="uk">
       <head>
-        {/* Human.js подключаем как UMD до рендера */}
-        <Script
-          src="https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js"
-          strategy="beforeInteractive"
-        />
+        <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
       </head>
-      <body className="bg-black text-white">
-        {children}
-      </body>
+      <body>{children}</body>
     </html>
   )
 }
