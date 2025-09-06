@@ -1,69 +1,20 @@
-:root {
-  --bg: #000;
-  --fg: #fff;
-  --accent: #0a84ff;
-  --progress: 0;
+:root{
+  --bg:#000; --fg:#fff; --accent:#0a84ff; --progress:0;
 }
-
-*,
-*::before,
-*::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-html, body {
-  height: 100%;
-  width: 100%;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-button {
-  display: inline-block;
-  width: 100%;
-  padding: 14px 16px;
-  margin-top: 12px;
-  font-size: 16px;
-  font-weight: 600;
-  border: none;
-  border-radius: 12px;
-  background: var(--accent);
-  color: white;
-  cursor: pointer;
-  transition: background 0.2s ease-in-out;
-}
-button:hover { background: #0066cc; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-
-/* ==== Face ID ring UI ==== */
-.faceid-box{
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1/1;
-  border-radius: 18px;
-  overflow: hidden;
-  background: #000;
-  border: 1px solid rgba(255,255,255,0.06);
-}
-.faceid-video{ width: 100%; height: 100%; object-fit: cover; display: block; }
-.faceid-mask{
-  position: absolute; inset: 0;
-  pointer-events: none;
-}
-.faceid-mask::before{
-  content: "";
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,.45);
-  -webkit-mask: radial-gradient(circle at 50% 50%, transparent 34%, #000 35%);
-          mask: radial-gradient(circle at 50% 50%, transparent 34%, #000 35%);
-}
-.faceid-ring{ position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-.faceid-ring::after{
-  content:"";
-  position:absolute; width: 80%; height: 80%;
-  border-radius: 50%;
-  background: conic-gradient(from -90deg, #34c759 calc(var(--progress, 0) * 360deg), transparent 0);
-  -webkit-mask: radial-gradient(circle, transparent 40%, #000 41%);
-          mask: radial-gradient(circle, transparent 40%, #000 41%);
-}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;width:100%;background:var(--bg);color:var(--fg);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif}
+button{display:inline-block;width:100%;padding:14px 16px;margin-top:12px;font-size:16px;
+  font-weight:600;border:none;border-radius:12px;background:var(--accent);color:#fff;cursor:pointer;transition:background .2s}
+button:hover{background:#0066cc}button:disabled{opacity:.5;cursor:not-allowed}
+.faceid-box{position:relative;width:100%;aspect-ratio:1/1;border-radius:18px;overflow:hidden;background:#000;border:1px solid rgba(255,255,255,.06)}
+.faceid-video{width:100%;height:100%;object-fit:cover;display:block}
+.faceid-mask{position:absolute;inset:0;pointer-events:none}
+.faceid-mask::before{content:"";position:absolute;inset:0;background:rgba(0,0,0,.45);
+  -webkit-mask:radial-gradient(circle at 50% 50%,transparent 34%,#000 35%);
+          mask:radial-gradient(circle at 50% 50%,transparent 34%,#000 35%)}
+.faceid-ring{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.faceid-ring::after{content:"";position:absolute;width:80%;height:80%;border-radius:50%;
+  background:conic-gradient(from -90deg,#34c759 calc(var(--progress,0)*360deg),transparent 0);
+  -webkit-mask:radial-gradient(circle,transparent 40%,#000 41%);
+          mask:radial-gradient(circle,transparent 40%,#000 41%)}
