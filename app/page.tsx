@@ -8,6 +8,8 @@ declare global {
     human?: any
     Human?: any
     Telegram?: any
+    __HUMAN_PROMISE__?: Promise<any>
+    __HUMAN_INSTANCE__?: any
   }
 }
 
@@ -18,6 +20,84 @@ function parseMode(startParam: string) {
   const parts = String(startParam || '').split('_')
   const parsed = parts[1] === 'verification' ? 'verification' : (parts[1] === 'identification' ? 'identification' : 'verification')
   return { mode: parsed }
+}
+
+// --- Human config: быстрый старт, без warmup, приоритет локальным моделям ---
+const humanCfg: any = {
+  modelBasePath: '/human-models', // положи модели в public/human-models
+  warmup: 'none',
+  face: {
+    enabled: true,
+    detector: { rotation: true, rotate: true, maxDetected: 1 },
+    mesh: { enabled: false },
+    description: { enabled: true },
+    iris: { enabled: false },
+    emotion: { enabled: false },
+    attention: { enabled: false },
+  },
+  filter: { enabled: true, equalization: false, flip: false },
+  debug: false,
+};
+
+async function ensureHuman() {
+  if (window.__HUMAN_INSTANCE__?.detect) return window.__HUMAN_INSTANCE__;
+  if (window.__HUMAN_PROMISE__) return window.__HUMAN_PROMISE__;
+
+  window.__HUMAN_PROMISE__ = (async () => {
+    const ready = async () => {
+      if ((window as any).human?.detect) {
+        const h:any = (window as any).human;
+        Object.assign(h.config ?? (h.config = {}), humanCfg);
+        return h;
+      }
+      if (typeof (window as any).Human === 'function') {
+        const h:any = new (window as any).Human(humanCfg);
+        return h;
+      }
+      return null;
+    };
+    const awaitReady = async (ms=4000) => {
+      const t0=Date.now();
+      while(Date.now()-t0<ms){
+        const h=await ready();
+        if(h) return h;
+        await new Promise(r=>setTimeout(r,80));
+      }
+      return null;
+    };
+
+    { const h = await awaitReady(300); if (h) { window.__HUMAN_INSTANCE__ = h; return h; } }
+
+    const loadScript = (src:string) => new Promise<void>((resolve,reject)=>{
+      const id='human-umd-once';
+      if (document.getElementById(id)) return resolve();
+      const s=document.createElement('script');
+      s.id=id; s.src=src; s.async=true; s.crossOrigin='anonymous';
+      s.onload=()=>resolve(); s.onerror=()=>reject(new Error('script load error: '+src));
+      document.head.appendChild(s);
+    });
+
+    const sources = [
+      '/human.js',            // локальная UMD сборка в public/
+      '/api/human-umd',       // прокси на случай отсутствия локальной
+      'https://unpkg.com/@vladmandic/human/dist/human.js', // резерв
+    ];
+
+    for (const src of sources) {
+      try {
+        await loadScript(src);
+        const h = await awaitReady(6000);
+        if (h) {
+          try { h.env = { ...h.env, perfMonitor:false, async:true }; } catch {}
+          window.__HUMAN_INSTANCE__ = h;
+          return h;
+        }
+      } catch {}
+    }
+    throw new Error('Human UMD недоступний після завантаження');
+  })();
+
+  return window.__HUMAN_PROMISE__;
 }
 
 export default function Page() {
@@ -50,41 +130,6 @@ export default function Page() {
 
   const minGoodFrames = 48
   const [goodFrames, setGoodFrames] = useState(0)
-
-  const humanCfg: any = {
-    modelBasePath: 'https://cdn.jsdelivr.net/npm/@vladmandic/human/models',
-    warmup: 'face',
-    face: { enabled: true, detector: { rotation: true, rotate: true, maxDetected: 1 }, mesh: { enabled: true }, description: { enabled: true }, iris: { enabled: false }, emotion: { enabled: false }, attention: { enabled: false } },
-  }
-
-  async function ensureHuman() {
-    const ready = async () => {
-      if (window.human?.load) { const h:any = window.human; Object.assign(h.config ?? (h.config={}), humanCfg); await h.load(); await h.warmup(); return h }
-      if (typeof window.Human === 'function') { const h:any = new (window as any).Human(humanCfg); await h.load(); await h.warmup(); return h }
-      return null
-    }
-    const awaitReady = async (ms=8000) => { const t0=Date.now(); while(Date.now()-t0<ms){ const h=await ready(); if(h) return h; await new Promise(r=>setTimeout(r,120)) } return null }
-    { const h = await awaitReady(300); if (h) return h }
-    const loadScript = (src:string) => new Promise<void>((resolve,reject)=>{
-      const id = `dyn-${btoa(src).replace(/=/g,'')}`
-      if (document.getElementById(id)) return resolve()
-      const s = document.createElement('script'); s.id=id; s.src=src; s.async=true; s.crossOrigin='anonymous'
-      s.onload=()=>resolve(); s.onerror=()=>reject(new Error('script load error: '+src))
-      document.head.appendChild(s)
-    })
-    const sources = [
-      '/human.js',                   // локальный файл в public/
-      '/api/human-umd',             // наш прокси (можно оставить как запасной)
-      'https://unpkg.com/@vladmandic/human/dist/human.js',
-      'https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js',
-      'https://unpkg.com/@vladmandic/human/dist/human.min.js',
-      'https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.min.js',
-    ]
-    for (const src of sources) {
-      try { await loadScript(src); const h = await awaitReady(6000); if (h) return h } catch {}
-    }
-    throw new Error('Human UMD недоступний після завантаження')
-  }
 
   function aHashFromCanvas(canvas: HTMLCanvasElement): string {
     const w=8,h=8
