@@ -14,15 +14,20 @@ declare global {
 type Step = 'intro' | 'scanning' | 'result'
 type TgInfo = { name: string; id: number | null; startParam: string }
 
-// Режим за замовчуванням — verification
+// Режим по умолчанию — verification
 function parseMode(startParam: string) {
   const parts = String(startParam || '').split('_')
-  const parsed = parts[1] === 'verification' ? 'verification' : (parts[1] === 'identification' ? 'identification' : 'verification')
+  const parsed =
+    parts[1] === 'verification'
+      ? 'verification'
+      : parts[1] === 'identification'
+      ? 'identification'
+      : 'verification'
   return { mode: parsed }
 }
 
 export default function Page() {
-  // Дані Telegram читаємо лише на клієнті, з фолбеком на query (?tg_id=&name=) і демо-режим
+  // Telegram info с fallback
   const [tg, setTg] = useState<TgInfo>({ name: 'Користувач', id: null, startParam: '' })
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -33,15 +38,13 @@ export default function Page() {
     let id: number | null = user?.id ?? null
     let name: string = user?.first_name || user?.username || 'Користувач'
 
-    // Фолбек через query (?tg_id=123&name=Ivan)
     const qId = q.get('tg_id')
     const qName = q.get('name')
     if (!id && qId) id = Number(qId)
     if (qName) name = qName
 
-    // Якщо ID все ще немає — демо-значення, щоб не блокувати тест
     if (!id) {
-      id = Number(String(Date.now()).slice(-9)) // псевдо-ID
+      id = Number(String(Date.now()).slice(-9)) // демо-ID
       name = `${name} (демо)`
     }
 
@@ -75,47 +78,83 @@ export default function Page() {
       detector: { rotation: true, rotate: true, maxDetected: 1 },
       mesh: { enabled: true },
       description: { enabled: true },
-      iris: { enabled: false }, emotion: { enabled: false }, attention: { enabled: false },
+      iris: { enabled: false },
+      emotion: { enabled: false },
+      attention: { enabled: false },
     },
   }
 
+  // Надёжная загрузка Human
+  async function ensureHuman() {
+    if (window.human?.load) {
+      const h: any = window.human
+      Object.assign(h.config ?? (h.config = {}), humanCfg)
+      await h.load()
+      await h.warmup()
+      return h
+    }
+    if (typeof window.Human === 'function') {
+      const h: any = new (window as any).Human(humanCfg)
+      await h.load()
+      await h.warmup()
+      return h
+    }
+    await new Promise<void>((resolve, reject) => {
+      const id = 'human-umd'
+      if (document.getElementById(id)) return resolve()
+      const s = document.createElement('script')
+      s.id = id
+      s.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/human/dist/human.js'
+      s.async = true
+      s.crossOrigin = 'anonymous'
+      s.onload = () => resolve()
+      s.onerror = () => reject(new Error('Не вдалося завантажити Human UMD'))
+      document.head.appendChild(s)
+    })
+    if (window.human?.load) {
+      const h: any = window.human
+      Object.assign(h.config ?? (h.config = {}), humanCfg)
+      await h.load()
+      await h.warmup()
+      return h
+    }
+    if (typeof window.Human === 'function') {
+      const h: any = new (window as any).Human(humanCfg)
+      await h.load()
+      await h.warmup()
+      return h
+    }
+    throw new Error('Human UMD недоступний після завантаження')
+  }
+
   function aHashFromCanvas(canvas: HTMLCanvasElement): string {
-    const w = 8, h = 8
+    const w = 8,
+      h = 8
     const t = document.createElement('canvas')
-    t.width = w; t.height = h
+    t.width = w
+    t.height = h
     const tctx = t.getContext('2d')!
     tctx.drawImage(canvas, 0, 0, w, h)
     const { data } = tctx.getImageData(0, 0, w, h)
-    let sum = 0; const g: number[] = []
+    let sum = 0
+    const g: number[] = []
     for (let i = 0; i < data.length; i += 4) {
       const v = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]
-      g.push(v); sum += v
+      g.push(v)
+      sum += v
     }
     const avg = sum / g.length
-    let bits = ''; for (const v of g) bits += v > avg ? '1' : '0'
+    let bits = ''
+    for (const v of g) bits += v > avg ? '1' : '0'
     return BigInt('0b' + bits).toString(16).padStart(16, '0')
-  }
-
-  async function ensureHuman() {
-    const startT = Date.now()
-    while (!(window.human || window.Human)) {
-      if (Date.now() - startT > 10000) throw new Error('Human UMD не завантажився')
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    let human: any
-    if (window.human?.load) {
-      human = window.human
-      try { Object.assign(human.config ?? (human.config = {}), humanCfg) } catch {}
-    } else if (typeof window.Human === 'function') human = new (window as any).Human(humanCfg)
-    else throw new Error('Непідтримуваний формат UMD')
-    await human.load(); await human.warmup()
-    return human
   }
 
   async function onStartVerification() {
     if (busy) return
-    if (!consent) { setStatus('Поставте позначку згоди'); return }
-    // режим за замовчуванням — verification; tg.id гарантовано є (або демо)
+    if (!consent) {
+      setStatus('Поставте позначку згоди')
+      return
+    }
     setBusy(true)
     try {
       setStatus('Ініціалізація…')
@@ -127,11 +166,14 @@ export default function Page() {
         audio: false,
       })
       const v = videoRef.current!
-      v.srcObject = stream; await v.play()
+      v.srcObject = stream
+      await v.play()
 
-      const w = v.videoWidth || 720, h = v.videoHeight || 720
+      const w = v.videoWidth || 720,
+        h = v.videoHeight || 720
       const snap = snapRef.current!
-      snap.width = w; snap.height = h
+      snap.width = w
+      snap.height = h
 
       setGoodFrames(0)
       setStep('scanning')
@@ -174,7 +216,7 @@ export default function Page() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              face_id: tg.id,              // Telegram user_id або демо-id
+              face_id: tg.id,
               dataUrl,
               ahash,
               descriptor,
@@ -203,7 +245,8 @@ export default function Page() {
   // ——— UI ———
   const wrap: React.CSSProperties = {
     minHeight: '100dvh',
-    padding: 'max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))',
+    padding:
+      'max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))',
     display: 'grid',
     placeItems: 'center',
     background: '#000',
@@ -236,9 +279,21 @@ export default function Page() {
       {step === 'intro' && (
         <section style={card}>
           <h1 style={{ fontSize: 'clamp(20px, 5.2vw, 26px)', fontWeight: 700, margin: 0 }}>Верифікація</h1>
-          <div style={{ marginTop: 8, opacity: 0.9 }}>Вітаємо, <b>{tg.name}</b></div>
+          <div style={{ marginTop: 8, opacity: 0.9 }}>
+            Вітаємо, <b>{tg.name}</b>
+          </div>
 
-          <div style={{ marginTop: 12, background: '#0b0b0b', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14, lineHeight: 1.5, fontSize: 'clamp(13px, 3.6vw, 14px)' }}>
+          <div
+            style={{
+              marginTop: 12,
+              background: '#0b0b0b',
+              border: '1px solid rgba(255,255,255,0.06)',
+              borderRadius: 14,
+              padding: 14,
+              lineHeight: 1.5,
+              fontSize: 'clamp(13px, 3.6vw, 14px)',
+            }}
+          >
             <div style={{ fontWeight: 600, marginBottom: 6 }}>Що відбудеться:</div>
             <ul style={{ margin: 0, paddingLeft: 18 }}>
               <li>Запросимо доступ до камери</li>
@@ -248,7 +303,12 @@ export default function Page() {
           </div>
 
           <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginTop: 10 }}>
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} style={{ marginTop: 2 }} />
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(e) => setConsent(e.target.checked)}
+              style={{ marginTop: 2 }}
+            />
             <span>Даю згоду на обробку зображення обличчя для верифікації</span>
           </label>
 
@@ -269,8 +329,6 @@ export default function Page() {
             <video ref={videoRef} className="faceid-video" autoPlay playsInline muted />
             <div className="faceid-mask"></div>
             <div ref={ringRef} className="faceid-ring" />
-            <div className="faceid-edge" />
-            <div className="faceid-cross" />
           </div>
 
           <div style={small}>{status}</div>
@@ -294,7 +352,12 @@ export default function Page() {
             <div style={{ color: '#ff4d4f', marginTop: 10 }}>{'Помилка: ' + (result?.msg || 'Невідома помилка')}</div>
           )}
           <button
-            onClick={() => { setStep('intro'); setResult(null); setStatus(''); setConsent(false) }}
+            onClick={() => {
+              setStep('intro')
+              setResult(null)
+              setStatus('')
+              setConsent(false)
+            }}
             style={{ ...btn, background: '#34c759' }}
           >
             Готово
