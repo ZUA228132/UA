@@ -1,9 +1,8 @@
-/* app/globals.css */
 :root {
   --bg: #000;
   --fg: #fff;
   --accent: #0a84ff;
-  --progress: 0; /* 0..1 */
+  --progress: 0;
 }
 
 *,
@@ -18,14 +17,6 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-body {
-  padding:
-    max(0px, env(safe-area-inset-top))
-    max(0px, env(safe-area-inset-right))
-    max(0px, env(safe-area-inset-bottom))
-    max(0px, env(safe-area-inset-left));
 }
 
 button {
@@ -45,17 +36,7 @@ button {
 button:hover { background: #0066cc; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.card {
-  background: #111;
-  padding: 24px;
-  border-radius: 16px;
-  max-width: 520px;
-  width: 100%;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.6);
-  border: 1px solid rgba(255,255,255,0.06);
-}
-
-/* ==== Face ID ring (CSS only) ========================================= */
+/* ==== Face ID ring UI ==== */
 .faceid-box{
   position: relative;
   width: 100%;
@@ -65,12 +46,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   background: #000;
   border: 1px solid rgba(255,255,255,0.06);
 }
-.faceid-video{
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
+.faceid-video{ width: 100%; height: 100%; object-fit: cover; display: block; }
 .faceid-mask{
   position: absolute; inset: 0;
   pointer-events: none;
@@ -82,51 +58,12 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   -webkit-mask: radial-gradient(circle at 50% 50%, transparent 34%, #000 35%);
           mask: radial-gradient(circle at 50% 50%, transparent 34%, #000 35%);
 }
-.faceid-ring{
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  pointer-events: none;
-}
-.faceid-ring::before{
-  content:"";
-  position:absolute; width: 80%; height: 80%;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle, transparent 54%, rgba(255,255,255,.9) 54% 55%, transparent 55%) center/100% 100% no-repeat,
-    repeating-conic-gradient(from -90deg, rgba(255,255,255,.28) 0 6deg, transparent 6deg 9deg);
-  -webkit-mask: radial-gradient(circle, transparent 40%, #000 41% 60%, transparent 61%);
-          mask: radial-gradient(circle, transparent 40%, #000 41% 60%, transparent 61%);
-}
+.faceid-ring{ position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
 .faceid-ring::after{
   content:"";
   position:absolute; width: 80%; height: 80%;
   border-radius: 50%;
-  background:
-    radial-gradient(circle, transparent 54%, rgba(255,255,255,.95) 54% 55%, transparent 55%) center/100% 100% no-repeat,
-    conic-gradient(from -90deg, #34c759 calc(var(--progress, 0) * 360deg), transparent 0);
-  -webkit-mask:
-    radial-gradient(circle, transparent 40%, #000 41% 60%, transparent 61%),
-    repeating-conic-gradient(from -90deg, #000 0 6deg, transparent 6deg 9deg);
-          mask:
-    radial-gradient(circle, transparent 40%, #000 41% 60%, transparent 61%),
-    repeating-conic-gradient(from -90deg, #000 0 6deg, transparent 6deg 9deg);
+  background: conic-gradient(from -90deg, #34c759 calc(var(--progress, 0) * 360deg), transparent 0);
+  -webkit-mask: radial-gradient(circle, transparent 40%, #000 41%);
+          mask: radial-gradient(circle, transparent 40%, #000 41%);
 }
-.faceid-edge{
-  position:absolute; inset: 0; display:grid; place-items:center; pointer-events:none;
-}
-.faceid-edge::before{
-  content:"";
-  position:absolute; width: calc(80% - 12px); height: calc(80% - 12px);
-  border-radius:50%;
-  border: 2px solid rgba(255,255,255,.9);
-}
-.faceid-cross{
-  position:absolute; inset:0; display:grid; place-items:center; pointer-events:none;
-}
-.faceid-cross::before,
-.faceid-cross::after{
-  content:""; position:absolute; background: rgba(255,255,255,.18);
-  border-radius: 1px;
-}
-.faceid-cross::before{ width: 1.5px; height: 60%; }
-.faceid-cross::after{ height: 1.5px; width: 60%; }
